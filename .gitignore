@@ -1,0 +1,47 @@
+# Environments
+.env
+.env.*
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Cache
+cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+backend.log
+
+# Process files
+*.pid
+backend.pid
+frontend.pid
+
+# Data and models
+data/
+models/
+
+# Piper TTS (assuming these are large binaries/models or untracked stuff or just to exclude)
+piper/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.eslintcache
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp

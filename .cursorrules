@@ -1,0 +1,19 @@
+# Rule: GAC-Concierge Agent Setup
+
+You are working on the GAC-Concierge system.
+The system consists of:
+1. A backend built with Python + FastAPI (port 8000). AI/RAG handled in `backend/agent.py` and `api.py`.
+2. A frontend built with React + Vite (port 3000/5173).
+
+## Tech Stack
+- Frontend: React 19, Vite, Vanilla CSS. **DO NOT** use TailwindCSS. Focus on rich aesthetics, premium design, dynamic animations, and responsive layouts.
+- Backend: FastAPI, Python 3.12, Uvicorn. Data is served via JSON and RAG-based AI tools.
+
+## Agent Instructions
+- When making frontend changes, edit `.jsx` / `.js` files within `frontend/src`.
+- Enforce strict separation of components. Use standard API wrappers.
+- For backend logic, maintain existing RAG endpoints in `backend/api.py`.
+- Run frontend using `npm run dev`.
+- Run backend using `python backend/api.py`.
+
+Please read the `AGENT_GUIDELINES.md` for extended system documentation and design principles.
