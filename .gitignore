@@ -40,6 +40,18 @@ frontend/node_modules/
 frontend/dist/
 frontend/.eslintcache
 
+# Mobile build artifacts
+mobile/*.apk
+mobile/*.aab
+mobile/android/
+mobile/ios/
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+
+# Test/generated audio
+*.wav
+
 # IDE / OS
 .vscode/
 .idea/
