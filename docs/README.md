@@ -11,6 +11,7 @@ AI-powered restaurant concierge for **Garlic & Chives** (Garden Grove, CA).
 | [frontend-web.md](frontend-web.md) | React web frontend, state design, layout, API boundary, TTS playback |
 | [mobile.md](mobile.md) | React Native Expo app, portrait/landscape layouts, APK builds, iOS/Android differences |
 | [configuration.md](configuration.md) | Environment variables, service management, LLM setup, deployment, hot reload |
+| [tts-optimization.md](tts-optimization.md) | Voice playback latency analysis and optimization plan (prefetch, streaming, browser TTS) |
 
 ## Quick Start
 
