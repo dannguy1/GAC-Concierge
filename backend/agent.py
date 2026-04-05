@@ -33,7 +33,6 @@ menu_manager = MenuManager()
 
 class WaitstaffAgent:
     def __init__(self):
-        self.retriever = get_retriever()
         self.menu_manager = menu_manager
         self.client = OpenAI(
             base_url=config.LLM_BASE_URL,
@@ -116,6 +115,8 @@ class WaitstaffAgent:
         Run the ReAct loop to process the conversation.
         Returns: { "text": str, "language": str, "cart_updates": list }
         """
+        # Always fetch the current retriever singleton so hot-reloads via /v1/reload are reflected
+        self.retriever = get_retriever()
         self.last_mentioned_items = []
         cart_updates = []
         current_general_note = None
@@ -239,7 +240,7 @@ CRITICAL RULES:
                     "cart_updates": cart_updates,
                     "general_note": current_general_note,
                     "order_confirmed": order_confirmed_status,
-                    "token_usage": {"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens},
+                    "token_usage": {"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens, "total_tokens": total_prompt_tokens + total_completion_tokens},
                 }
             except Exception as e:
                 logger.error(f"Unexpected LLM error at step {step + 1}: {e}")
@@ -250,7 +251,7 @@ CRITICAL RULES:
                     "cart_updates": cart_updates,
                     "general_note": current_general_note,
                     "order_confirmed": order_confirmed_status,
-                    "token_usage": {"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens},
+                    "token_usage": {"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens, "total_tokens": total_prompt_tokens + total_completion_tokens},
                 }
             
             # Extract token usage

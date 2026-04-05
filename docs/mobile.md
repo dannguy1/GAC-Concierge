@@ -2,7 +2,7 @@
 
 ## Stack
 
-- **React Native** (Expo SDK 52)
+- **React Native** (Expo SDK 54)
 - **Expo Go** for development/testing (iOS + Android)
 - **EAS Build** for standalone Android APK releases
 - JavaScript (no TypeScript)
@@ -40,7 +40,7 @@ All state lives in `App.js`. Identical logical structure to web `App.jsx` with a
 | `cart` | Current order items |
 | `mentionedItems` | Items referenced by agent |
 | `generalNotes` | Order-level note |
-| `orderConfirmed` | Unlocks kitchen send |
+| `orderConfirmed` | Unlocks kitchen send; reset to `false` when user manually modifies cart |
 | `isLoading` | LLM request in flight |
 | `thinkingSeconds` | Elapsed wait seconds |
 | `language` | Selected response language |
@@ -107,6 +107,11 @@ Orientation detection uses `useWindowDimensions()`: `isLandscape = width > heigh
 - Loaded on startup via `loadServerHost()` before first menu fetch
 - Test button pings `/v1/health` with a 5-second timeout to verify connectivity
 - Save triggers menu reload
+
+**Request timeouts:**
+- Menu fetch (`fetchMenu`): **15-second** `AbortController` timeout
+- Chat request: **90-second** `AbortController` timeout; "Cancel" button appears in UI at 20s
+- Health check (SettingsModal): **5-second** fetch timeout
 
 ```javascript
 // services/api.js

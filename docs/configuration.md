@@ -115,8 +115,8 @@ curl -X POST http://localhost:8000/v1/reload \
 
 This:
 1. Re-reads `menu.json` into `MenuManager`
-2. Recomputes the SHA-256 hash
-3. If hash changed, rebuilds FAISS index, re-trains BM25
+2. Recomputes the MD5 hash
+3. If hash changed, rebuilds FAISS (`IndexFlatL2`) index, re-trains BM25
 4. Saves new cache to `cache/rag/`
 
 ## Mobile APK Distribution

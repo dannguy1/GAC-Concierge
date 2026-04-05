@@ -98,7 +98,11 @@ for step in range(max_steps):
     "cart_updates": list,       # [{name, qty, notes}]
     "general_note": str,        # Order-level allergy note
     "order_confirmed": bool,    # True after confirm_order called
-    "token_usage": dict,        # prompt + completion tokens
+    "token_usage": {
+      "prompt_tokens": 412,
+      "completion_tokens": 89,
+      "total_tokens": 501
+    }
 }
 ```
 
@@ -124,9 +128,8 @@ Embeddings stored as `cache/rag/embeddings.npy` (numpy binary, not pickle).
 
 ### FAISS Index
 
-Type: `IndexIVFFlat` (IVF with flat quantizer, L2 distance)
-- `n_list = max(4, sqrt(n_items))` cells
-- Trained and saved to `cache/rag/faiss_index.bin`
+Type: `IndexFlatL2` (flat L2 distance, exact nearest-neighbour search)
+- Saved to `cache/rag/faiss_index.bin`
 
 ### BM25
 
@@ -146,7 +149,7 @@ def retrieve_items(query, top_k=3):
 
 ### Cache Invalidation
 
-At startup, the SHA-256 hash of `menu.json` content is compared against `metadata.json`'s `data_hash`. If different, the index is rebuilt from scratch.
+At startup, the **MD5** hash of `menu.json` content is compared against `metadata.json`'s `data_hash`. If different, the index is rebuilt from scratch.
 
 ### Hot Reload
 
@@ -156,7 +159,7 @@ menu_manager.reload()
 retriever.reload()
 ```
 
-Both are mutable singletons — no restart needed.
+Both are mutable singletons — no restart needed. The agent also fetches the current retriever at the start of each `run()` call, ensuring hot-reloads are reflected immediately.
 
 ---
 
@@ -182,6 +185,7 @@ Voice mapping (`config.py`):
 | Language | Voice |
 |----------|-------|
 | English | `af_heart` |
+| Vietnamese | `af_heart` (fallback — not natively supported) |
 | Spanish | `ef_dora` |
 | Mandarin Chinese | `zf_xiaoxiao` |
 | French | `ff_siwis` |
@@ -228,6 +232,10 @@ Returns base64 WAV audio for given text. Returns `{"audio_base64": null}` if `EN
 
 Request: `{ "text": "...", "language": "English" }`
 
+- `language` is optional; if omitted, the client auto-detects from the text using `langdetect`.
+- Markdown is stripped from `text` before synthesis.
+- Audio sample rate: 24 kHz (Kokoro default).
+
 ### `POST /v1/checkout`
 Validates cart against live menu prices (server is price authority — client prices are ignored).
 
@@ -237,6 +245,16 @@ Response: `{ "order": [...], "total": 42.50, "message": "Order validated and rec
 
 ### `POST /v1/reload`
 Hot-reloads menu and RAG index from disk. Requires `x-api-key: <ADMIN_API_KEY>` header.
+
+### Static File Mounts
+Two static directories are mounted at startup:
+
+| URL prefix | Disk path | Purpose |
+|------------|-----------|---------|
+| `/images` | `data/images/` | Menu item photos |
+| `/downloaded_images` | `data/downloaded_images/` | Supplemental/downloaded images |
+
+The frontend normalises image paths from menu items before building URLs (strips `./`, converts `data/images/` → `images/`, blocks `..` traversal).
 
 ---
 

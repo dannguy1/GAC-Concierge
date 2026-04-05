@@ -39,7 +39,7 @@ All application state lives in `App.jsx`. Components are stateless/controlled.
 | `cart` | `Array` | Current order items `{item_name, name, qty, notes, price}` |
 | `mentionedItems` | `Array` | Menu items referenced by agent in last reply |
 | `generalNotes` | `string` | Order-level note (allergies, preferences) |
-| `orderConfirmed` | `boolean` | True after agent calls `confirm_order` |
+| `orderConfirmed` | `boolean` | True after agent calls `confirm_order`; reset to `false` when user manually modifies cart |
 | `isLoading` | `boolean` | True while LLM request in flight |
 | `thinkingSeconds` | `number` | Elapsed seconds during LLM wait |
 | `language` | `string` | Selected UI/response language |
@@ -80,12 +80,16 @@ The `OrderPad` slides in as an overlay when the "Review Order" button is clicked
 All `fetch()` calls are in `api.js`. Components never call `fetch()` directly.
 
 ```javascript
-fetchMenu()          // GET  /v1/menu
+fetchMenu()          // GET  /v1/menu  (15s timeout)
 sendChat(messages, language, signal)  // POST /v1/chat
 sendCheckout(cart, generalNotes)      // POST /v1/checkout
 fetchTTS(text, language)              // POST /v1/tts
 getImageUrl(imagePath)                // Constructs image URL (no fetch)
 ```
+
+`App.jsx` applies a **90-second hard timeout** to every chat request via `AbortController`. A thinking counter in the UI shows elapsed time; a "Cancel" button appears at 20 seconds.
+
+`getImageUrl()` normalises image paths from menu items: strips `./` prefix, converts `data/images/` → `images/`, and returns `null` for any path containing `..` (directory traversal guard).
 
 Vite proxies `/v1/*`, `/images/*`, `/downloaded_images/*` to `http://127.0.0.1:8000`.
 

@@ -139,11 +139,13 @@ export default function App() {
                 addSilentSystemEvent(`[System Event] User explicitly updated quantity of ${item_name} to ${newCart[idx].qty}.`);
             }
             setCart(newCart);
+            setOrderConfirmed(false);
         }
     };
 
     const handleRemoveItem = (item_name) => {
         setCart(cart.filter(i => i.name !== item_name));
+        setOrderConfirmed(false);
         addSilentSystemEvent(`[System Event] User explicitly removed ${item_name} from their order cart.`);
     };
 

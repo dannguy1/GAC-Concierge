@@ -126,4 +126,4 @@ The `gac_service.sh` script manages backend and frontend processes:
 | `cache/rag/metadata.json` | Data hash, menu_items list, item_chunks list |
 | `cache/rag/embeddings.npy` | Numpy array of sentence embeddings |
 
-The RAG cache is automatically invalidated when `data/menu.json` changes (SHA-256 hash comparison).
+The RAG cache is automatically invalidated when `data/menu.json` changes (MD5 hash comparison).
