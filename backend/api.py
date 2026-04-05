@@ -2,7 +2,9 @@ import sys
 import os
 import re
 import time
+import hmac
 import logging
+import threading
 from collections import defaultdict
 from functools import wraps
 
@@ -62,7 +64,8 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://127.0.0.1:8501",
         "http://127.0.0.1:5173",
-        "*"
+        "http://192.168.10.3:8501",
+        "http://192.168.10.3:5173",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -86,6 +89,7 @@ app.mount("/downloaded_images", StaticFiles(directory="data/downloaded_images"),
 
 # ============== RATE LIMITING ==============
 rate_limit_store = defaultdict(list)
+rate_limit_lock = threading.Lock()
 RATE_LIMIT_REQUESTS = 30  # requests per window
 RATE_LIMIT_WINDOW = 60    # seconds
 
@@ -95,22 +99,18 @@ def rate_limiter(func):
     async def wrapper(request: Request, *args, **kwargs):
         client_ip = request.client.host if request.client else "unknown"
         current_time = time.time()
-        
-        # Clean old requests
-        rate_limit_store[client_ip] = [
-            t for t in rate_limit_store[client_ip] 
-            if current_time - t < RATE_LIMIT_WINDOW
-        ]
-        
-        # Check rate limit
-        if len(rate_limit_store[client_ip]) >= RATE_LIMIT_REQUESTS:
-            logger.warning(f"Rate limit exceeded for {client_ip}")
-            raise HTTPException(status_code=429, detail="Rate limit exceeded. Please slow down.")
-        
-        # Record this request
-        rate_limit_store[client_ip].append(current_time)
-        
-        return await func(request, *args, **kwargs) if hasattr(func, '__await__') else func(*args, **kwargs)
+
+        with rate_limit_lock:
+            rate_limit_store[client_ip] = [
+                t for t in rate_limit_store[client_ip]
+                if current_time - t < RATE_LIMIT_WINDOW
+            ]
+            if len(rate_limit_store[client_ip]) >= RATE_LIMIT_REQUESTS:
+                logger.warning(f"Rate limit exceeded for {client_ip}")
+                raise HTTPException(status_code=429, detail="Rate limit exceeded. Please slow down.")
+            rate_limit_store[client_ip].append(current_time)
+
+        return await func(request, *args, **kwargs)
     return wrapper
 
 # ============== REQUEST MODELS WITH VALIDATION ==============
@@ -144,7 +144,7 @@ class CheckOutRequest(BaseModel):
     general_notes: Optional[str] = ""
 
 def verify_api_key(x_api_key: str = Header(None)):
-    if not config.ADMIN_API_KEY or x_api_key != config.ADMIN_API_KEY:
+    if not config.ADMIN_API_KEY or not hmac.compare_digest(x_api_key or "", config.ADMIN_API_KEY):
         raise HTTPException(status_code=401, detail="Invalid API Key")
 
 @app.get("/v1/health")
@@ -189,8 +189,7 @@ def chat_endpoint(request: ChatRequest):
         
         # FINAL CLEANUP: Strip <think> tags from response before sending to frontend
         if response_text:
-            response_text = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL)
-            response_text = re.sub(r'</?think>', '', response_text)
+            response_text = re.sub(r'<think>.*?</think>|</?think>', '', response_text, flags=re.DOTALL)
             response_text = response_text.strip()
         
         # Find mentioned items (for UI to display images)
@@ -221,6 +220,7 @@ def tts_endpoint(request: dict = Body(...)):
     """Generate TTS audio on-demand for given text."""
     try:
         text = request.get("text", "")
+        language = request.get("language", "")
         if not text:
             raise HTTPException(status_code=400, detail="No text provided")
         
@@ -228,7 +228,7 @@ def tts_endpoint(request: dict = Body(...)):
             return {"audio_base64": None}
         
         # Generate audio using TTS client
-        audio_bytes = b"".join(list(tts_client.generate_audio(text)))
+        audio_bytes = b"".join(list(tts_client.generate_audio(text, language=language)))
         audio_b64 = base64.b64encode(audio_bytes).decode('utf-8') if audio_bytes else None
         
         return {
@@ -316,4 +316,4 @@ def reload_endpoint():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=config.API_PORT)
+    uvicorn.run(app, host="0.0.0.0", port=config.API_PORT)

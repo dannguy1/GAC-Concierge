@@ -26,22 +26,28 @@ const baseUrl = () => `http://${_host}/v1`;
 const serverUrl = () => `http://${_host}`;
 
 export const fetchMenu = async () => {
-    const response = await fetch(`${baseUrl()}/menu`);
-    if (!response.ok) throw new Error('Failed to fetch menu');
-    const items = await response.json();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    try {
+        const response = await fetch(`${baseUrl()}/menu`, { signal: controller.signal });
+        if (!response.ok) throw new Error('Failed to fetch menu');
+        const items = await response.json();
 
-    const categoryOrder = ['Appetizer', 'Soup', 'Salad', 'Seafood', 'Meat', 'Poultry', 'Vegetarian', 'Noodle', 'Rice', 'Dessert', 'Drink', 'Beverage'];
-    const rawCategories = [...new Set(items.map(i => i.category).filter(Boolean))];
-    const sortedCategories = rawCategories.sort((a, b) => {
-        const ai = categoryOrder.findIndex(c => a.includes(c));
-        const bi = categoryOrder.findIndex(c => b.includes(c));
-        if (ai === -1 && bi === -1) return a.localeCompare(b);
-        if (ai === -1) return 1;
-        if (bi === -1) return -1;
-        return ai - bi;
-    });
+        const categoryOrder = ['Appetizer', 'Soup', 'Salad', 'Seafood', 'Meat', 'Poultry', 'Vegetarian', 'Noodle', 'Rice', 'Dessert', 'Drink', 'Beverage'];
+        const rawCategories = [...new Set(items.map(i => i.category).filter(Boolean))];
+        const sortedCategories = rawCategories.sort((a, b) => {
+            const ai = categoryOrder.findIndex(c => a.includes(c));
+            const bi = categoryOrder.findIndex(c => b.includes(c));
+            if (ai === -1 && bi === -1) return a.localeCompare(b);
+            if (ai === -1) return 1;
+            if (bi === -1) return -1;
+            return ai - bi;
+        });
 
-    return { items, categories: sortedCategories };
+        return { items, categories: sortedCategories };
+    } finally {
+        clearTimeout(timeoutId);
+    }
 };
 
 export const sendChat = async (messages, language = 'English', signal = null) => {

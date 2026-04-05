@@ -15,7 +15,10 @@ rank-bm25==0.2.2
 # Language Detection
 langdetect
 
-# TTS (Piper binary handles audio, these are optional for advanced features)
+# TTS
 # sounddevice
 # soundfile
 # faster-whisper
+kokoro>=0.9.0
+soundfile>=0.12.0
+torch>=2.0.0

@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
 import { sendCheckout } from '../services/api';
 
-export default function OrderPad({ cart, generalNotes, orderConfirmed, onUpdateItemQty, onRemoveItem }) {
+export default function OrderPad({ cart, generalNotes, orderConfirmed, tableNumber, guestCount, onUpdateItemQty, onRemoveItem }) {
     const [checkoutStatus, setCheckoutStatus] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const statusTimerRef = useRef(null);
 
     const subtotal = cart.reduce((sum, item) => sum + (item.price || 0) * (item.qty || 1), 0).toFixed(2);
 
@@ -13,10 +14,15 @@ export default function OrderPad({ cart, generalNotes, orderConfirmed, onUpdateI
             setIsSubmitting(true);
             setCheckoutStatus('Submitting to kitchen...');
             const result = await sendCheckout(cart, generalNotes);
-            setCheckoutStatus(result.message || 'Order Successfully Placed!');
+            const msg = result.message || 'Order Successfully Placed!';
+            setCheckoutStatus(msg);
+            clearTimeout(statusTimerRef.current);
+            statusTimerRef.current = setTimeout(() => setCheckoutStatus(''), 5000);
         } catch (e) {
             console.error(e);
             setCheckoutStatus('Failed to submit order. Please alert staff.');
+            clearTimeout(statusTimerRef.current);
+            statusTimerRef.current = setTimeout(() => setCheckoutStatus(''), 5000);
         } finally {
             setIsSubmitting(false);
         }
@@ -26,10 +32,11 @@ export default function OrderPad({ cart, generalNotes, orderConfirmed, onUpdateI
         <ScrollView style={styles.container} contentContainerStyle={styles.content}>
             {/* Header info */}
             <View style={styles.receipt}>
-                <Text style={styles.receiptLine}><Text style={styles.receiptLabel}>DATE: </Text>{new Date().toLocaleDateString()}</Text>
-                <Text style={styles.receiptLine}><Text style={styles.receiptLabel}>TABLE: </Text>TBD</Text>
-                <Text style={styles.receiptLine}><Text style={styles.receiptLabel}>SERVER: </Text>Kristin (AI)</Text>
-            </View>
+                    <Text style={styles.receiptLine}><Text style={styles.receiptLabel}>DATE: </Text>{new Date().toLocaleDateString()}</Text>
+                    <Text style={styles.receiptLine}><Text style={styles.receiptLabel}>TABLE: </Text>{tableNumber || '—'}</Text>
+                    <Text style={styles.receiptLine}><Text style={styles.receiptLabel}>GUESTS: </Text>{guestCount || '—'}</Text>
+                    <Text style={styles.receiptLine}><Text style={styles.receiptLabel}>SERVER: </Text>Kristin (AI)</Text>
+                </View>
 
             {/* Allergy / global notes */}
             {!!generalNotes && (

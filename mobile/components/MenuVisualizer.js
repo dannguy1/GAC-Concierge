@@ -45,7 +45,7 @@ export default function MenuVisualizer({ mentionedItems, allMenuItems, categorie
             ) : (
                 <FlatList
                     data={displayItems}
-                    keyExtractor={(item, idx) => `${item.item_name}-${idx}`}
+                    keyExtractor={(item) => item.item_name}
                     key={numColumns}
                     numColumns={numColumns}
                     columnWrapperStyle={styles.row}

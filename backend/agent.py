@@ -1,8 +1,10 @@
 import json
 import re
+import time
+import unicodedata
 import logging
 import config
-from openai import OpenAI
+from openai import OpenAI, APITimeoutError, APIConnectionError
 from backend.rag_retriever import get_retriever
 
 # Configure logging
@@ -41,6 +43,26 @@ class WaitstaffAgent:
         self.model = config.LLM_MODEL
         logger.info(f"Agent initialized with model: {self.model}")
         self.last_mentioned_items = []
+
+    def _call_llm(self, messages: list, max_retries: int = 2):
+        """Call the LLM with exponential-backoff retry on transient errors."""
+        for attempt in range(max_retries + 1):
+            try:
+                return self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                )
+            except (APITimeoutError, APIConnectionError) as e:
+                if attempt < max_retries:
+                    wait = 2 ** attempt  # 1s, 2s
+                    logger.warning(
+                        f"LLM call failed (attempt {attempt + 1}/{max_retries + 1}): "
+                        f"{type(e).__name__}. Retrying in {wait}s..."
+                    )
+                    time.sleep(wait)
+                else:
+                    logger.error(f"LLM call failed after {max_retries + 1} attempts: {e}")
+                    raise
 
 
     def lookup_menu(self, query: str, language: str = "English") -> str:
@@ -90,14 +112,14 @@ class WaitstaffAgent:
         return result
 
     def run(self, messages: list, current_language: str = "English") -> dict:
-        self.last_mentioned_items = [] # Reset for this turn
-        current_cart_updates = [] # Track items added in this turn
-        current_general_note = None
-        order_confirmed_status = False
         """
         Run the ReAct loop to process the conversation.
         Returns: { "text": str, "language": str, "cart_updates": list }
         """
+        self.last_mentioned_items = []
+        cart_updates = []
+        current_general_note = None
+        order_confirmed_status = False
         # 1. Prepare Tools and System Prompt
         tools_desc = """
 1. lookup_menu(query: str): Search for dishes, prices, ingredients. usage: Action: lookup_menu\nAction Input: query
@@ -191,28 +213,45 @@ CRITICAL RULES:
 - **DO NOT output raw JSON.** Respond in natural conversational language. If a tool returns data, summarize it for the user.
 """
 
-        # Construct message history for LLM
-        # We process the last user message to decide on action
-        current_messages = [{"role": "system", "content": system_prompt}] + messages
+        # Construct message history for LLM, keeping a bounded window to avoid
+        # token overflow. Always retain the system prompt (index 0) and trim
+        # the oldest conversation turns if history grows too large.
+        MAX_HISTORY_MESSAGES = 40
+        trimmed = messages[-MAX_HISTORY_MESSAGES:] if len(messages) > MAX_HISTORY_MESSAGES else messages
+        current_messages = [{"role": "system", "content": system_prompt}] + trimmed
         
-        # Max steps to prevent loops
-        max_steps = 3
+        # Max steps to prevent loops (5 allows: lookup_info → lookup_menu → add_to_cart → set_general_note → final answer)
+        max_steps = 5
         
         # Token tracking
         total_prompt_tokens = 0
         total_completion_tokens = 0
         
-        # Initialize loop variables
-        cart_updates = []
-        current_general_note = None
-        order_confirmed_status = False
-        
         for step in range(max_steps):
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=current_messages,
-                # stop=["Observation:"] # DISABLE STOP FOR DEBUGGING
-            )
+            try:
+                response = self._call_llm(current_messages)
+            except (APITimeoutError, APIConnectionError) as e:
+                logger.error(f"LLM unreachable after retries at step {step + 1}: {e}")
+                return {
+                    "text": "I'm sorry, I'm having trouble reaching my knowledge base right now. Please try again in a moment.",
+                    "language": detected_language,
+                    "mentioned_items": self.last_mentioned_items,
+                    "cart_updates": cart_updates,
+                    "general_note": current_general_note,
+                    "order_confirmed": order_confirmed_status,
+                    "token_usage": {"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens},
+                }
+            except Exception as e:
+                logger.error(f"Unexpected LLM error at step {step + 1}: {e}")
+                return {
+                    "text": "I apologize, something went wrong. Please try again.",
+                    "language": detected_language,
+                    "mentioned_items": self.last_mentioned_items,
+                    "cart_updates": cart_updates,
+                    "general_note": current_general_note,
+                    "order_confirmed": order_confirmed_status,
+                    "token_usage": {"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens},
+                }
             
             # Extract token usage
             if hasattr(response, 'usage') and response.usage:
@@ -279,8 +318,6 @@ CRITICAL RULES:
                                 notes = ", ".join(parts[2:])
                             
                             # VALIDATION: Check if item exists in menu using fuzzy matching
-                            import unicodedata
-                            import re
                             
                             # Normalize search term: lowercase, remove hyphens, normalize spaces
                             search_name = item_name.lower().strip()
@@ -362,7 +399,7 @@ CRITICAL RULES:
                         "text": content, 
                         "language": detected_language,
                         "mentioned_items": self.last_mentioned_items,
-                        "cart_updates": current_cart_updates,
+                        "cart_updates": cart_updates,
                         "general_note": current_general_note,
                         "order_confirmed": order_confirmed_status,
                         "token_usage": {
@@ -389,12 +426,41 @@ CRITICAL RULES:
                     }
                 }
 
-        # Fallback return if max_steps is exhausted without a final answer
+        # All steps used up with no final answer — force the LLM to respond now
+        logger.warning(f"max_steps ({max_steps}) exhausted without final answer. Forcing response.")
+        current_messages.append({
+            "role": "user",
+            "content": (
+                "Observation: You have used all available tool steps. "
+                "Based on everything gathered so far, please give a concise final response to the customer now. "
+                "Do NOT call any more tools. Do NOT output 'Action:'. Just respond naturally."
+            )
+        })
+        try:
+            forced_response = self._call_llm(current_messages)
+            if hasattr(forced_response, 'usage') and forced_response.usage:
+                total_prompt_tokens += forced_response.usage.prompt_tokens or 0
+                total_completion_tokens += forced_response.usage.completion_tokens or 0
+            forced_content = forced_response.choices[0].message.content or ""
+            forced_content = clean_llm_response(forced_content)
+            # If the LLM still emits a tool call, strip it and use whatever text preceded it
+            if "Action:" in forced_content:
+                forced_content = forced_content.split("Action:")[0].strip()
+            if not forced_content:
+                forced_content = "I apologize for the delay. Could you please repeat your request?"
+            logger.info(f"Forced final answer: {forced_content[:200]}...")
+        except Exception as e:
+            logger.error(f"Forced final answer LLM call failed: {e}")
+            forced_content = "I apologize for the delay. Could you please repeat your request?"
+
+        final_mentioned = self._filter_mentioned_items(forced_content, self.last_mentioned_items)
         return {
-            "text": "I apologize, I need a moment to process that differently. Could you ask that again or rephrase it?", 
+            "text": forced_content,
             "language": detected_language,
-            "mentioned_items": [],
-            "cart_updates": [],
+            "mentioned_items": final_mentioned,
+            "cart_updates": cart_updates,
+            "general_note": current_general_note,
+            "order_confirmed": order_confirmed_status,
             "token_usage": {
                 "prompt_tokens": total_prompt_tokens,
                 "completion_tokens": total_completion_tokens,
@@ -416,7 +482,6 @@ CRITICAL RULES:
         text = text.replace(" & ", " and ")
         
         # Remove punctuation (keep spaces)
-        import re
         text = re.sub(r'[^\w\s]', '', text)
         
         # Collapse spaces

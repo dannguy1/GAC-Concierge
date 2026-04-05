@@ -25,18 +25,22 @@ IMAGES_DIR = get_path("IMAGES_DIR", "data/images")
 MENU_PATH = get_path("MENU_PATH", "data/menu.json")
 FACTS_PATH = get_path("FACTS_PATH", "data/facts.json")
 
+# -------------
 # TTS Configuration
-PIPER_BINARY = get_path("PIPER_BINARY", "piper/piper")
-PIPER_MODEL = get_path("PIPER_MODEL", "models/piper/en_US-amy-medium.onnx")  # Default English
-
-# Multi-language TTS models
-PIPER_MODELS = {
-    "en": get_path("PIPER_MODEL_EN", "models/piper/en_US-amy-medium.onnx"),
-    "vi": get_path("PIPER_MODEL_VI", "models/piper/vi_VN-vais1000-medium.onnx"),
-    "es": get_path("PIPER_MODEL_ES", "models/piper/es_ES-sharvard-medium.onnx"),
-    "zh": get_path("PIPER_MODEL_ZH", "models/piper/zh_CN-huayan-medium.onnx"),
+# -------------
+KOKORO_VOICES = {
+    "en": "af_heart",     # American English
+    "vi": "af_heart",     # Fallback (Vietnamese not natively supported)
+    "es": "ef_dora",      # Spanish
+    "zh": "zf_xiaoxiao",  # Mandarin Chinese
+    "fr": "ff_siwis",     # French
+    "hi": "hf_alpha",     # Hindi
+    "it": "if_sara",      # Italian
+    "pt": "pf_dora",      # Brazilian Portuguese
+    "ja": "jf_alpha",     # Japanese
 }
-TTS_SAMPLE_RATE = 22050 
+TTS_SAMPLE_RATE = 24000  # Kokoro uses 24000
+
 
 # LLM Configuration
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")

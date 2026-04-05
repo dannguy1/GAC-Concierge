@@ -12,7 +12,6 @@ This prevents hallucinations by ensuring only real menu items are retrieved.
 import json
 import os
 import hashlib
-import pickle
 import logging
 import numpy as np
 from typing import List, Dict, Any, Tuple
@@ -31,7 +30,8 @@ class RAGRetriever:
     # Cache directory for persisted indexes
     CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cache", "rag")
     FAISS_INDEX_PATH = os.path.join(CACHE_DIR, "faiss_index.bin")
-    METADATA_PATH = os.path.join(CACHE_DIR, "metadata.pkl")
+    METADATA_PATH = os.path.join(CACHE_DIR, "metadata.json")
+    EMBEDDINGS_PATH = os.path.join(CACHE_DIR, "embeddings.npy")
     
     def _sanitize_for_json(self, obj):
         """Recursively convert numpy types to Python native types."""
@@ -75,39 +75,38 @@ class RAGRetriever:
         try:
             with open(config.MENU_PATH, 'rb') as f:
                 return hashlib.md5(f.read()).hexdigest()
-        except:
+        except (FileNotFoundError, IOError) as e:
+            logger.warning(f"Failed to hash menu data: {e}")
             return ""
     
     def _load_cached_index(self) -> bool:
         """Try to load FAISS index and metadata from cache."""
         try:
-            if not os.path.exists(self.FAISS_INDEX_PATH) or not os.path.exists(self.METADATA_PATH):
+            if not os.path.exists(self.FAISS_INDEX_PATH) or \
+               not os.path.exists(self.METADATA_PATH) or \
+               not os.path.exists(self.EMBEDDINGS_PATH):
                 logger.info("No cached index found, will build fresh")
                 return False
-            
-            # Load metadata
-            with open(self.METADATA_PATH, 'rb') as f:
-                metadata = pickle.load(f)
-            
-            # Check if menu data has changed
+
+            with open(self.METADATA_PATH, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+
             current_hash = self._get_data_hash()
             if metadata.get('data_hash') != current_hash:
                 logger.info("Menu data changed, rebuilding index")
                 return False
-            
-            # Load FAISS index
+
             self.faiss_index = faiss.read_index(self.FAISS_INDEX_PATH)
             self.menu_items = metadata['menu_items']
             self.item_chunks = metadata['item_chunks']
-            self.embeddings = metadata['embeddings']
-            
-            # Rebuild BM25 (fast, not worth caching)
+            self.embeddings = np.load(self.EMBEDDINGS_PATH)
+
             tokenized_chunks = [chunk.lower().split() for chunk in self.item_chunks]
             self.bm25_index = BM25Okapi(tokenized_chunks)
-            
+
             logger.info(f"Loaded cached index with {len(self.menu_items)} items")
             return True
-            
+
         except Exception as e:
             logger.warning(f"Failed to load cached index: {e}")
             return False
@@ -115,18 +114,17 @@ class RAGRetriever:
     def _save_cached_index(self):
         """Save FAISS index and metadata to cache."""
         try:
-            # Save FAISS index
             faiss.write_index(self.faiss_index, self.FAISS_INDEX_PATH)
-            
-            # Save metadata
+
             metadata = {
                 'data_hash': self._get_data_hash(),
                 'menu_items': self.menu_items,
                 'item_chunks': self.item_chunks,
-                'embeddings': self.embeddings
             }
-            with open(self.METADATA_PATH, 'wb') as f:
-                pickle.dump(metadata, f)
+            with open(self.METADATA_PATH, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, ensure_ascii=False)
+
+            np.save(self.EMBEDDINGS_PATH, self.embeddings)
             
             logger.info(f"Saved index cache to {self.CACHE_DIR}")
         except Exception as e:
@@ -266,12 +264,14 @@ Description: {item.get('description', '')}
         """
         if not self.menu_items:
             return []
-        
+
+        search_top_k = min(10, len(self.menu_items))
+
         # 1. Semantic search
-        semantic_results = self._semantic_search(query, top_k=min(10, len(self.menu_items)))
-        
+        semantic_results = self._semantic_search(query, top_k=search_top_k)
+
         # 2. BM25 keyword search
-        bm25_results = self._bm25_search(query, top_k=min(10, len(self.menu_items)))
+        bm25_results = self._bm25_search(query, top_k=search_top_k)
         
         # 3. Rank fusion (combine scores)
         fused_results = self._rank_fusion(
@@ -413,12 +413,17 @@ Description: {item.get('description', '')}
         return (len(invalid) == 0, invalid)
 
 
+import threading
+
 # Global singleton instance
 _retriever_instance = None
+_retriever_lock = threading.Lock()
 
 def get_retriever() -> RAGRetriever:
-    """Get or create the global RAG retriever instance."""
+    """Get or create the global RAG retriever instance (thread-safe)."""
     global _retriever_instance
     if _retriever_instance is None:
-        _retriever_instance = RAGRetriever()
+        with _retriever_lock:
+            if _retriever_instance is None:
+                _retriever_instance = RAGRetriever()
     return _retriever_instance

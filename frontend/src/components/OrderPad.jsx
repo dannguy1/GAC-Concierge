@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { sendCheckout } from '../services/api';
 
-export default function OrderPad({ cart, generalNotes, orderConfirmed, onUpdateItemQty, onRemoveItem, onClose }) {
+export default function OrderPad({ cart, generalNotes, orderConfirmed, tableNumber, guestCount, onUpdateItemQty, onRemoveItem, onClose }) {
     const [checkoutStatus, setCheckoutStatus] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const statusTimerRef = useRef(null);
 
     const calculateTotal = () => {
         return cart.reduce((total, item) => total + (item.price || 0) * (item.qty || 1), 0).toFixed(2);
@@ -10,12 +12,20 @@ export default function OrderPad({ cart, generalNotes, orderConfirmed, onUpdateI
 
     const handleCheckout = async () => {
         try {
+            setIsSubmitting(true);
             setCheckoutStatus('Submitting to kitchen...');
             const result = await sendCheckout(cart, generalNotes);
-            setCheckoutStatus(result.message || 'Order Successfully Placed!');
+            const msg = result.message || 'Order Successfully Placed!';
+            setCheckoutStatus(msg);
+            clearTimeout(statusTimerRef.current);
+            statusTimerRef.current = setTimeout(() => setCheckoutStatus(''), 5000);
         } catch (e) {
             console.error(e);
             setCheckoutStatus('Failed to submit order. Please alert staff.');
+            clearTimeout(statusTimerRef.current);
+            statusTimerRef.current = setTimeout(() => setCheckoutStatus(''), 5000);
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -36,7 +46,8 @@ export default function OrderPad({ cart, generalNotes, orderConfirmed, onUpdateI
                 {/* Table/Ticket Info */}
                 <div style={{ borderBottom: '1px dashed var(--color-border)', paddingBottom: '16px', marginBottom: '16px' }}>
                     <div><strong>DATE:</strong> {new Date().toLocaleDateString()}</div>
-                    <div><strong>TABLE:</strong> TBD</div>
+                    <div><strong>TABLE:</strong> {tableNumber || '—'}</div>
+                    <div><strong>GUESTS:</strong> {guestCount || '—'}</div>
                     <div><strong>SERVER:</strong> Kristin (AI)</div>
                 </div>
 
@@ -88,13 +99,13 @@ export default function OrderPad({ cart, generalNotes, orderConfirmed, onUpdateI
                 {cart.length > 0 && (
                     <div style={{ marginTop: 'auto', paddingTop: '24px', borderTop: '2px dashed var(--color-border)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.2rem', fontWeight: 700, marginBottom: '24px' }}>
-                            <span>Total:</span>
+                            <span>Subtotal:</span>
                             <span>${calculateTotal()}</span>
                         </div>
 
                         <button
                             onClick={handleCheckout}
-                            disabled={!orderConfirmed || checkoutStatus.includes('Submitt')}
+                            disabled={!orderConfirmed || isSubmitting}
                             style={{
                                 width: '100%',
                                 padding: '16px',

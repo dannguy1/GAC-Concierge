@@ -9,6 +9,7 @@ import MenuVisualizer from './components/MenuVisualizer';
 import OrderPad from './components/OrderPad';
 import ItemDetailModal from './components/ItemDetailModal';
 import SettingsModal from './components/SettingsModal';
+import TableSetupModal from './components/TableSetupModal';
 
 const TABS = [
     { key: 'chat', label: '💬 Chat' },
@@ -36,13 +37,18 @@ export default function App() {
     const isLandscape = width > height;
     const [rightTab, setRightTab] = useState('menu');
     const [showSettings, setShowSettings] = useState(false);
+    const [showTableSetup, setShowTableSetup] = useState(false);
+    const [tableNumber, setTableNumber] = useState('');
+    const [guestCount, setGuestCount] = useState(1);
+
+    const [menuError, setMenuError] = useState(false);
 
     // Load saved server host, then fetch menu
     useEffect(() => {
         loadServerHost().then(() => {
             fetchMenu()
-                .then(({ items, categories }) => { setAllMenuItems(items); setCategories(categories); })
-                .catch(err => console.error('Failed to load menu:', err));
+                .then(({ items, categories }) => { setAllMenuItems(items); setCategories(categories); setMenuError(false); })
+                .catch(err => { console.error('Failed to load menu:', err); setMenuError(true); });
         });
     }, []);
 
@@ -78,10 +84,19 @@ export default function App() {
                         setActiveTab('chat');
                         setRightTab('menu');
                         setIsLoading(false);
+                        setTableNumber('');
+                        setGuestCount(1);
                     },
                 },
             ]
         );
+    };
+
+    const handleTableSave = (table, guests) => {
+        setTableNumber(table);
+        setGuestCount(guests);
+        const info = [table ? `Table ${table}` : '', `${guests} guest${guests !== 1 ? 's' : ''}`].filter(Boolean).join(', ');
+        addSilentSystemEvent(`[System Event] Table setup: ${info}.`);
     };
 
     const addSilentSystemEvent = (text) => {
@@ -194,7 +209,14 @@ export default function App() {
                     />
                 );
             case 'menu':
-                return (
+                return menuError ? (
+                    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+                        <Text style={{ fontSize: 32, marginBottom: 12 }}>⚠️</Text>
+                        <Text style={{ fontSize: 15, color: '#888', textAlign: 'center' }}>
+                            Could not load menu.{'\n'}Check server settings (⚙️) and try again.
+                        </Text>
+                    </View>
+                ) : (
                     <MenuVisualizer
                         mentionedItems={mentionedItems}
                         allMenuItems={allMenuItems}
@@ -242,6 +264,8 @@ export default function App() {
         cart,
         generalNotes,
         orderConfirmed,
+        tableNumber,
+        guestCount,
         onUpdateItemQty: handleUpdateItemQty,
         onRemoveItem: handleRemoveItem,
     };
@@ -256,7 +280,11 @@ export default function App() {
                     <TouchableOpacity style={styles.newSessionBtn} onPress={handleNewSession}>
                         <Text style={styles.newSessionIcon}>↺</Text>
                     </TouchableOpacity>
-                    <Text style={styles.lsTitleText}>🌿 Garlic &amp; Chives Concierge</Text>
+                    <TouchableOpacity onPress={() => setShowTableSetup(true)} style={styles.tableBadge}>
+                        <Text style={styles.tableBadgeText}>
+                            {tableNumber ? `🪑 T${tableNumber} · ${guestCount}👥` : '🪑 Set Table'}
+                        </Text>
+                    </TouchableOpacity>
                     <TouchableOpacity style={styles.gearBtn} onPress={() => setShowSettings(true)}>
                         <Text style={styles.gearIcon}>⚙️</Text>
                     </TouchableOpacity>
@@ -307,14 +335,22 @@ export default function App() {
                     />
                 )}
 
+                <TableSetupModal
+                    visible={showTableSetup}
+                    tableNumber={tableNumber}
+                    guestCount={guestCount}
+                    onSave={handleTableSave}
+                    onClose={() => setShowTableSetup(false)}
+                />
+
                 <SettingsModal
                     visible={showSettings}
                     onClose={(hostChanged) => {
                         setShowSettings(false);
                         if (hostChanged) {
                             fetchMenu()
-                                .then(({ items, categories }) => { setAllMenuItems(items); setCategories(categories); })
-                                .catch(err => console.error('Failed to reload menu:', err));
+                                .then(({ items, categories }) => { setAllMenuItems(items); setCategories(categories); setMenuError(false); })
+                                .catch(err => { console.error('Failed to reload menu:', err); setMenuError(true); });
                         }
                     }}
                 />
@@ -331,7 +367,11 @@ export default function App() {
                 <TouchableOpacity style={styles.newSessionBtn} onPress={handleNewSession}>
                     <Text style={styles.newSessionIcon}>↺</Text>
                 </TouchableOpacity>
-                <Text style={styles.titleText}>🌿 Garlic &amp; Chives Concierge</Text>
+                <TouchableOpacity onPress={() => setShowTableSetup(true)} style={styles.tableBadge}>
+                    <Text style={styles.tableBadgeText}>
+                        {tableNumber ? `🪑 T${tableNumber} · ${guestCount}👥` : '🪑 Set Table'}
+                    </Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={styles.gearBtn} onPress={() => setShowSettings(true)}>
                     <Text style={styles.gearIcon}>⚙️</Text>
                 </TouchableOpacity>
@@ -372,6 +412,14 @@ export default function App() {
                 />
             )}
 
+            <TableSetupModal
+                visible={showTableSetup}
+                tableNumber={tableNumber}
+                guestCount={guestCount}
+                onSave={handleTableSave}
+                onClose={() => setShowTableSetup(false)}
+            />
+
             <SettingsModal
                 visible={showSettings}
                 onClose={(hostChanged) => {
@@ -393,6 +441,8 @@ const styles = StyleSheet.create({
     // ── Portrait ──────────────────────────────────────────────────────────────
     titleBar: { backgroundColor: '#fff', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#e0d8c8', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
     titleText: { fontSize: 17, fontWeight: '700', color: '#2c2c2c', textAlign: 'center', flex: 1 },
+    tableBadge: { flex: 1, alignItems: 'center', paddingVertical: 4, paddingHorizontal: 8, backgroundColor: '#f0ece1', borderRadius: 16 },
+    tableBadgeText: { fontSize: 13, fontWeight: '700', color: '#5a7a3a' },
     gearBtn: { position: 'absolute', right: 16, padding: 4 },
     gearIcon: { fontSize: 20 },
     newSessionBtn: { position: 'absolute', left: 16, padding: 4 },

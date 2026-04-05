@@ -1,5 +1,10 @@
-from openai import OpenAI
+from openai import OpenAI, APITimeoutError, APIConnectionError
+import time
+import traceback
+import logging
 import config
+
+logger = logging.getLogger(__name__)
 
 class LLMClient:
     def __init__(self):
@@ -43,14 +48,23 @@ IMPORTANT: Keep responses concise (2-3 sentences). Be warm and professional."""
         full_messages = [{"role": "system", "content": system_prompt}] + messages
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=full_messages
-            )
-            return response.choices[0].message.content
+            for attempt in range(3):
+                try:
+                    response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=full_messages
+                    )
+                    if not response.choices:
+                        raise ValueError("LLM returned an empty choices list")
+                    return response.choices[0].message.content
+                except (APITimeoutError, APIConnectionError) as e:
+                    if attempt < 2:
+                        wait = 2 ** attempt
+                        logger.warning(f"LLM timeout/connection error (attempt {attempt + 1}/3). Retrying in {wait}s...")
+                        time.sleep(wait)
+                    else:
+                        raise
         except Exception as e:
-            import traceback
-            print(f"LLM Error: {e}")
-            print(f"Full traceback:")
+            logger.error(f"LLM Error: {e}")
             traceback.print_exc()
             return "I apologize, but I'm having trouble thinking right now. Could you repeat that?"

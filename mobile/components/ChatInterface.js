@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, FlatList,
     StyleSheet, ActivityIndicator, KeyboardAvoidingView,
-    Platform, useWindowDimensions,
+    Platform, useWindowDimensions, ActionSheetIOS,
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { Audio } from 'expo-av';
@@ -28,9 +28,9 @@ export default function ChatInterface({ messages, onSendMessage, isLoading, thin
     const isLandscape = width > height;
 
     useEffect(() => {
-        if (messages.length > 0) {
-            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-        }
+        if (messages.length === 0) return;
+        const timer = setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+        return () => clearTimeout(timer);
     }, [messages]);
 
     const handleSubmit = () => {
@@ -85,22 +85,44 @@ export default function ChatInterface({ messages, onSendMessage, isLoading, thin
         );
     };
 
+    const currentLanguageLabel = LANGUAGES.find(l => l.value === language)?.label ?? language;
+
+    const showIOSLanguagePicker = () => {
+        ActionSheetIOS.showActionSheetWithOptions(
+            {
+                options: [...LANGUAGES.map(l => l.label), 'Cancel'],
+                cancelButtonIndex: LANGUAGES.length,
+                title: 'Select Language',
+            },
+            (index) => {
+                if (index < LANGUAGES.length) setLanguage(LANGUAGES[index].value);
+            }
+        );
+    };
+
     return (
         <KeyboardAvoidingView
             style={styles.container}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             keyboardVerticalOffset={isLandscape ? 20 : 90}
         >
-            {/* Language picker — same height in both orientations */}
+            {/* Language picker */}
             <View style={styles.pickerRow}>
-                <Picker
-                    selectedValue={language}
-                    onValueChange={setLanguage}
-                    style={styles.picker}
-                    mode="dropdown"
-                >
-                    {LANGUAGES.map(l => <Picker.Item key={l.value} label={l.label} value={l.value} />)}
-                </Picker>
+                {Platform.OS === 'ios' ? (
+                    <TouchableOpacity style={styles.iosPickerBtn} onPress={showIOSLanguagePicker} activeOpacity={0.7}>
+                        <Text style={styles.iosPickerText}>{currentLanguageLabel}</Text>
+                        <Text style={styles.iosPickerChevron}>▾</Text>
+                    </TouchableOpacity>
+                ) : (
+                    <Picker
+                        selectedValue={language}
+                        onValueChange={setLanguage}
+                        style={styles.picker}
+                        mode="dropdown"
+                    >
+                        {LANGUAGES.map(l => <Picker.Item key={l.value} label={l.label} value={l.value} />)}
+                    </Picker>
+                )}
             </View>
 
             {/* Message list */}
@@ -161,6 +183,9 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#faf8f2' },
     pickerRow: { backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e0d8c8', height: 56, justifyContent: 'center' },
     picker: { height: 56 },
+    iosPickerBtn: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: 56 },
+    iosPickerText: { fontSize: 15, color: '#2c2c2c', flex: 1 },
+    iosPickerChevron: { fontSize: 16, color: '#5a7a3a', fontWeight: '700' },
     messageList: { padding: 16, paddingBottom: 8, flexGrow: 1 },
     emptyText: { textAlign: 'center', color: '#888', fontStyle: 'italic', marginTop: 40, fontSize: 15, lineHeight: 24 },
     bubble: { maxWidth: '85%', padding: 14, borderRadius: 14, marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 2, elevation: 1 },

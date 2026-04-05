@@ -1,9 +1,8 @@
 import os
-import subprocess
-import struct
 import hashlib
 import re
 import logging
+import io
 import config
 
 # Configure logging
@@ -11,20 +10,42 @@ logger = logging.getLogger("gac_waiter.tts")
 
 class TTSClient:
     def __init__(self):
-        self.piper_binary = config.PIPER_BINARY
-        self.piper_models = config.PIPER_MODELS  # Dictionary of language models
+        self.voices = config.KOKORO_VOICES
         self.cache_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cache", "tts")
         
         # Ensure cache directory exists
         os.makedirs(self.cache_dir, exist_ok=True)
         
-        # Verify all models exist
-        for lang, model_path in self.piper_models.items():
-            if not os.path.exists(model_path):
-                logger.warning(f"Piper model for '{lang}' not found at {model_path}")
-        
-        if not os.path.exists(self.piper_binary):
-            logger.error(f"Piper binary not found at {self.piper_binary}")
+        # Kokoro pipelines per language code
+        self.pipelines = {}
+
+    def _map_lang_to_kokoro(self, lang_code):
+        """Map standard language codes to Kokoro's internal codes."""
+        mapping = {
+            'en': 'a',
+            'es': 'e',
+            'fr': 'f',
+            'hi': 'h',
+            'it': 'i',
+            'pt': 'p',
+            'ja': 'j',
+            'zh': 'z'
+        }
+        return mapping.get(lang_code, 'a')
+
+    def _get_pipeline(self, k_lang):
+        """Lazy load the Kokoro pipeline."""
+        if k_lang not in self.pipelines:
+            try:
+                from kokoro import KPipeline
+                import torch
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                logger.info(f"Initializing Kokoro KPipeline for lang_code='{k_lang}' on {device}")
+                self.pipelines[k_lang] = KPipeline(lang_code=k_lang)
+            except ImportError as e:
+                logger.error(f"Failed to import Kokoro: {e}. Did you install it?")
+                raise e
+        return self.pipelines[k_lang]
 
     def _get_cache_key(self, text):
         """Generate cache key from text."""
@@ -37,93 +58,84 @@ class TTSClient:
 
     def _strip_markdown(self, text):
         """Remove markdown formatting from text for cleaner TTS output."""
-        # Remove code blocks (```...```)
         text = re.sub(r'```[\s\S]*?```', '', text)
-        
-        # Remove inline code (`...`)
         text = re.sub(r'`([^`]+)`', r'\1', text)
-        
-        # Remove bold/italic (**text**, __text__, *text*, _text_)
-        text = re.sub(r'\*\*\*(.+?)\*\*\*', r'\1', text)  # bold+italic
-        text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)      # bold
-        text = re.sub(r'__(.+?)__', r'\1', text)          # bold
-        text = re.sub(r'\*(.+?)\*', r'\1', text)          # italic
-        text = re.sub(r'_(.+?)_', r'\1', text)            # italic
-        
-        # Remove links [text](url) -> text
+        text = re.sub(r'\*\*\*(.+?)\*\*\*', r'\1', text)
+        text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+        text = re.sub(r'__(.+?)__', r'\1', text)
+        text = re.sub(r'\*(.+?)\*', r'\1', text)
+        text = re.sub(r'_(.+?)_', r'\1', text)
         text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-        
-        # Remove headers (# ## ###)
         text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
-        
-        # Remove horizontal rules (---, ***)
         text = re.sub(r'^[\*\-]{3,}$', '', text, flags=re.MULTILINE)
-        
-        # Remove blockquotes (>)
         text = re.sub(r'^>\s+', '', text, flags=re.MULTILINE)
-        
-        # Remove list markers (-, *, +, 1.)
         text = re.sub(r'^[\*\-\+]\s+', '', text, flags=re.MULTILINE)
         text = re.sub(r'^\d+\.\s+', '', text, flags=re.MULTILINE)
-        
-        # Remove emojis (Range: U+1F600-U+1F64F, U+1F300-U+1F5FF, U+1F680-U+1F6FF, U+1F1E0-U+1F1FF, etc.)
-        # Using a broad unicode range for common symbols and pictographs
         text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
-        
-        # Replace multiple newlines with single space (for continuous speech)
         text = re.sub(r'\n\s*\n', ' ', text)
-        
-        # Replace single newlines with space (prevents TTS from stopping)
         text = re.sub(r'\n', ' ', text)
-        
-        # Clean up multiple spaces
         text = re.sub(r'\s+', ' ', text)
         text = text.strip()
-        
         return text
 
     def _detect_language(self, text):
-        """Detect the language of the text and return appropriate model."""
+        """Detect the language of the text. Defaults to English."""
         try:
             from langdetect import detect
             lang_code = detect(text)
             
-            # Map detected language to available models
-            if lang_code == 'vi':
-                return 'vi'
-            elif lang_code in ['zh-cn', 'zh-tw', 'zh']:  # Chinese
-                return 'zh'
-            elif lang_code in ['es', 'ca', 'gl']:  # Spanish and related
-                return 'es'
-            else:
-                return 'en'  # Default to English
+            # Map exact language codes
+            if lang_code in ['zh-cn', 'zh-tw', 'zh']: return 'zh'
+            elif lang_code in ['es', 'ca', 'gl']: return 'es'
+            elif lang_code == 'fr': return 'fr'
+            elif lang_code == 'hi': return 'hi'
+            elif lang_code == 'it': return 'it'
+            elif lang_code == 'pt': return 'pt'
+            elif lang_code == 'ja': return 'ja'
+            elif lang_code == 'vi': return 'vi'
+            else: return 'en'
         except Exception as e:
             logger.warning(f"Language detection error: {e}, defaulting to English")
             return 'en'
 
-    def generate_audio(self, text):
+    def _normalize_lang_name(self, lang_name):
+        """Convert a UI language string into standard ISO codes for mapping."""
+        if not lang_name:
+            return None
+            
+        nm = lang_name.lower()
+        if "english" in nm: return "en"
+        if "spanish" in nm: return "es"
+        if "vietnamese" in nm: return "vi"
+        if "chinese" in nm: return "zh"
+        if "french" in nm: return "fr"
+        if "italian" in nm: return "it"
+        if "portuguese" in nm: return "pt"
+        if "hindi" in nm: return "hi"
+        if "japanese" in nm: return "ja"
+        return None
+
+    def generate_audio(self, text, language=None):
         """
-        Generates audio for the given text using Piper binary.
-        Detects language automatically and selects appropriate voice.
-        Checks cache first, generates if not found.
-        Yields chunks of audio bytes (WAV formatted).
+        Generates audio using Kokoro TTS.
         """
         if not text:
             return
 
-        # Strip markdown formatting for cleaner TTS
         clean_text = self._strip_markdown(text)
         if not clean_text:
             return
 
-        # Detect language and select appropriate model
-        detected_lang = self._detect_language(clean_text)
-        selected_model = self.piper_models.get(detected_lang, self.piper_models['en'])
-        
-        logger.debug(f"Detected language: {detected_lang}, using model: {os.path.basename(selected_model)}")
+        # Use explicitly provided language if available, otherwise auto-detect
+        explicit_lang = self._normalize_lang_name(language)
+        detected_lang = explicit_lang if explicit_lang else self._detect_language(clean_text)
 
-        # Check cache (use original text + language for cache key)
-        cache_key = self._get_cache_key(f"{detected_lang}:{text}")
+        k_lang = self._map_lang_to_kokoro(detected_lang)
+        voice = self.voices.get(detected_lang, self.voices['en'])
+        
+        logger.debug(f"Generating audio. Language: {detected_lang}, Kokoro lang: {k_lang}, Voice: {voice}")
+
+        cache_key = self._get_cache_key(f"{detected_lang}:{voice}:{text}")
         cache_path = self._get_cache_path(cache_key)
         
         if os.path.exists(cache_path):
@@ -132,52 +144,39 @@ class TTSClient:
                 yield f.read()
             return
 
-        logger.debug(f"Generating audio for: '{clean_text[:50]}...'")
-        
-        cmd = [
-            self.piper_binary,
-            "--model", selected_model,
-            "--output_file", "-"
-        ]
+        logger.debug(f"Running Kokoro TTS for: '{clean_text[:50]}...'")
         
         try:
-            # Use Popen to stream stdout with timeout
-            with subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as proc:
-                # Send cleaned text (without markdown) with 30s timeout
-                try:
-                    stdout_data, stderr_data = proc.communicate(
-                        input=clean_text.encode('utf-8'),
-                        timeout=30  # 30 second timeout
-                    )
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    logger.error("TTS generation timed out after 30 seconds")
-                    return
+            pipeline = self._get_pipeline(k_lang)
+            import soundfile as sf
+            import numpy as np
+            # Use generation pipeline
+            generator = pipeline(clean_text, voice=voice, speed=1, split_pattern=r'\n+')
+            
+            audio_chunks = []
+            for gs, ps, audio in generator:
+                if audio is not None:
+                    audio_chunks.append(audio)
+            
+            if not audio_chunks:
+                logger.error("No audio generated by Kokoro.")
+                return
                 
-                if proc.returncode != 0:
-                    logger.error(f"Piper Error: {stderr_data.decode('utf-8')}")
-                    return
-                    
-                # Patch WAV Header (Crucial for Browser Playback of Pipe Output)
-                if len(stdout_data) > 44 and stdout_data.startswith(b'RIFF'):
-                     # Calculate correct size
-                     correct_size = len(stdout_data) - 8
-                     # Pack into 4 bytes little-endian
-                     size_bytes = struct.pack('<I', correct_size)
-                     # Replace bytes 4-8
-                     stdout_data = stdout_data[:4] + size_bytes + stdout_data[8:]
-                     logger.debug(f"Patched WAV header size to {correct_size}")
-
-                if len(stdout_data) > 0:
-                    # Save to cache
-                    try:
-                        with open(cache_path, 'wb') as f:
-                            f.write(stdout_data)
-                        logger.debug(f"Cached audio at {cache_path}")
-                    except Exception as e:
-                        logger.warning(f"Cache write error: {e}")
-                    
-                    yield stdout_data
+            full_audio = np.concatenate(audio_chunks)
+            buffer = io.BytesIO()
+            sf.write(buffer, full_audio, config.TTS_SAMPLE_RATE, format='WAV')
+            buffer.seek(0)
+            wav_data = buffer.read()
+            
+            # Save to cache
+            try:
+                with open(cache_path, 'wb') as f:
+                    f.write(wav_data)
+                logger.debug(f"Cached audio at {cache_path}")
+            except Exception as e:
+                logger.warning(f"Cache write error: {e}")
+            
+            yield wav_data
+            
         except Exception as e:
-            logger.error(f"Piper Execution Error: {e}")
-
+            logger.error(f"Kokoro Execution Error: {e}")
