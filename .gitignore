@@ -57,3 +57,4 @@ mobile/dist/
 .idea/
 .DS_Store
 *.swp
+menu-display/node_modules/
