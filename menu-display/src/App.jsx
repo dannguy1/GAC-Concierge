@@ -52,8 +52,9 @@ export default function App() {
             ) : (
                 <div className="display-idle">
                     <div className="display-idle__logo">Garlic &amp; Chives</div>
+                    <div className="display-idle__divider" />
                     <div className="display-idle__sub">
-                        {connected ? 'Awaiting display event…' : 'Connecting to server…'}
+                        {connected ? 'Featured dishes loading…' : 'Connecting to server…'}
                     </div>
                 </div>
             )}
