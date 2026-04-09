@@ -71,7 +71,7 @@ start() {
         echo "[SUCCESS] Menu Display started (PID: $(cat "$DISPLAY_PID_FILE"))"
     fi
 
-    echo "Ready! Backend on http://localhost:8000 | Frontend on http://localhost:8501 | Display on http://localhost:8502"
+    echo "Ready! Backend on http://localhost:8000 | Frontend on http://localhost:8501 | Display on http://localhost:8503"
 }
 
 stop() {

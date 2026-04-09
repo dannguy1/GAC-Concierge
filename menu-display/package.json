@@ -4,9 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port 8502",
+    "dev": "vite --port 8503",
     "build": "vite build",
-    "preview": "vite preview --port 8502"
+    "preview": "vite preview --port 8503"
   },
   "dependencies": {
     "react": "^18.2.0",
