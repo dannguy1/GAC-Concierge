@@ -149,7 +149,23 @@ def retrieve_items(query, top_k=3):
 
 ### Cache Invalidation
 
-At startup, the **MD5** hash of `menu.json` content is compared against `metadata.json`'s `data_hash`. If different, the index is rebuilt from scratch.
+At startup, the **MD5** hash of both `menu.json` and `facts.json` is compared against the stored `data_hash` in `cache/rag/metadata.json`. If either file has changed, the index is rebuilt from scratch automatically before the server accepts requests (~17s). If the cache is current, the index loads from disk in seconds.
+
+### Updating Menu or Facts Data
+
+After editing `data/menu.json` or `data/facts.json`, run the rebuild script to pre-build the cache **before** restarting the server. This prevents any user request from ever triggering a slow rebuild:
+
+```bash
+# Run from project root (uses venv)
+venv/bin/python scripts/rebuild_rag_cache.py
+
+# Force a full rebuild even if data is unchanged (e.g. after code changes)
+venv/bin/python scripts/rebuild_rag_cache.py --force
+```
+
+The script exits immediately with a confirmation message if the cache is already up-to-date.
+
+**If you skip the script**, the server will detect the change on the next restart and rebuild automatically — the only difference is that the rebuild delay (~17s) happens during startup rather than ahead of time.
 
 ### Hot Reload
 

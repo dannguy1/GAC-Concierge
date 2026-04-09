@@ -3,6 +3,7 @@ import re
 import time
 import unicodedata
 import logging
+import httpx
 import config
 from openai import OpenAI, APITimeoutError, APIConnectionError
 from backend.rag_retriever import get_retriever
@@ -34,10 +35,14 @@ menu_manager = MenuManager()
 class WaitstaffAgent:
     def __init__(self):
         self.menu_manager = menu_manager
+        # Force IPv4 to avoid IPv6 connectivity hangs (IPv6 may be unreachable on this host)
+        _transport = httpx.HTTPTransport(local_address="0.0.0.0")
+        _http_client = httpx.Client(transport=_transport)
         self.client = OpenAI(
             base_url=config.LLM_BASE_URL,
             api_key=config.LLM_API_KEY,
-            timeout=180.0  # 3 minute timeout for slow CPU inference
+            timeout=180.0,  # 3 minute timeout for slow CPU inference
+            http_client=_http_client,
         )
         self.model = config.LLM_MODEL
         logger.info(f"Agent initialized with model: {self.model}")
@@ -115,6 +120,7 @@ class WaitstaffAgent:
         Run the ReAct loop to process the conversation.
         Returns: { "text": str, "language": str, "cart_updates": list }
         """
+        logger.info("agent.run() started")
         # Always fetch the current retriever singleton so hot-reloads via /v1/reload are reflected
         self.retriever = get_retriever()
         self.last_mentioned_items = []
@@ -134,12 +140,6 @@ class WaitstaffAgent:
         detected_language = current_language
         
         system_prompt = f"""You are Kristin, an intelligent waiter at Garlic & Chives.
-You embody the classic "pencil and paper" waiter approach. You must:
-1. Provide a professional introduction to the restaurant and its offerings.
-2. Answer any questions the customer may have clearly and methodically.
-3. Take precise notes of the order and any customer comments/allergies.
-4. Provide a summary of the order and create a thorough order payload ready for the kitchen.
-
 You have access to the following tools to answer customer questions accurately:
 
 {tools_desc}
@@ -162,8 +162,8 @@ PROTOCOL:
 4. If the customer asks for **specials (lunch, dinner, daily)**:
    - First, use `lookup_info` to find the written specials.
    - **CRITICAL**: If specific dishes are listed in the info (e.g., "Lemongrass Chicken"), you MUST then call `lookup_menu` for those specific items. This ensures the user sees the photos and prices in the "Suggested Items" panel.
-5. If you need facts (prices, ingredients, owner name), use a tool. 
-   - Output: 
+5. If you need facts (prices, ingredients, owner name), use a tool.
+   - Output:
      Action: [tool_name]
      Action Input: [query]
 6. If you have enough info or it's just chit-chat, respond directly to the customer.
@@ -173,12 +173,14 @@ ORDER WORKFLOW (CRITICAL - Follow this order):
 1. **Exploration**: Help customers browse the menu, answer questions about dishes.
    - **CRITICAL**: ONLY recommend items that you have explicitly found using `lookup_menu`. Do not hallucinate dishes.
 2. **Taking Orders**: When customer wants to add items (e.g., "I want pho", "add 2 egg rolls"):
+   - If the item name is **explicit and specific** (the customer named the dish), call `add_to_cart` **directly** — do NOT call `lookup_menu` first.
+   - If the item is vague (e.g., "something spicy", "a noodle dish"), use `lookup_menu` first, then confirm before adding.
    - You MUST call `add_to_cart`.
    - Format:
      Action: add_to_cart
      Action Input: Item Name, Qty, [Modifications ONLY: no onions, extra sauce]
    - **CRITICAL**: DO NOT put allergies or "no spicy" preferences here unless it's specific to just that dish. Use `set_general_note` for safety rules.
-   - **UPSELL**: After a successful add, ALWAYS suggest a complementary Drink or Side Order if they haven't ordered one yet.
+   - **UPSELL**: Do NOT suggest complementary items, drinks, or sides unless the customer explicitly asks for a recommendation.
 3. **SPECIAL NOTES & ALLERGIES**:
    - If user mentions allergies or global preferences (e.g., "Peanut Allergy", "Gluten Free", "No Spicy Food", "Separate Checks"):
    - You MUST call `set_general_note`.
@@ -434,6 +436,7 @@ CRITICAL RULES:
             "content": (
                 "Observation: You have used all available tool steps. "
                 "Based on everything gathered so far, please give a concise final response to the customer now. "
+                "Summarize what was done successfully. Do NOT mention any failed tool calls or items that could not be found. "
                 "Do NOT call any more tools. Do NOT output 'Action:'. Just respond naturally."
             )
         })

@@ -55,7 +55,11 @@ class RAGRetriever:
         os.makedirs(self.CACHE_DIR, exist_ok=True)
         
         # Load lightweight embedding model (all-MiniLM-L6-v2: 80MB, fast)
-        self.embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+        # local_files_only=True prevents slow HuggingFace network checks when model is already cached
+        self.embedding_model = SentenceTransformer(
+            'sentence-transformers/all-MiniLM-L6-v2',
+            local_files_only=True
+        )
         
         # Storage for menu items and their embeddings
         self.menu_items: List[Dict[str, Any]] = []
@@ -71,13 +75,15 @@ class RAGRetriever:
         logger.info(f"RAG Retriever initialized with {len(self.menu_items)} menu items")
 
     def _get_data_hash(self) -> str:
-        """Generate hash of menu data to detect changes."""
-        try:
-            with open(config.MENU_PATH, 'rb') as f:
-                return hashlib.md5(f.read()).hexdigest()
-        except (FileNotFoundError, IOError) as e:
-            logger.warning(f"Failed to hash menu data: {e}")
-            return ""
+        """Generate combined hash of menu and facts data to detect any changes."""
+        h = hashlib.md5()
+        for path in (config.MENU_PATH, config.FACTS_PATH):
+            try:
+                with open(path, 'rb') as f:
+                    h.update(f.read())
+            except (FileNotFoundError, IOError):
+                pass
+        return h.hexdigest()
     
     def _load_cached_index(self) -> bool:
         """Try to load FAISS index and metadata from cache."""

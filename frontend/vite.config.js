@@ -8,6 +8,7 @@ export default defineConfig({
     port: 8501,
     strictPort: true,
     host: true,
+    allowedHosts: ['gacaiserver'],
     proxy: {
       '/v1': 'http://127.0.0.1:8000',
       '/images': 'http://127.0.0.1:8000',

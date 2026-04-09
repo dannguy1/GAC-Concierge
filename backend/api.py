@@ -45,10 +45,12 @@ logger.info("=" * 60)
 from backend.menu_manager import MenuManager
 from backend.tts_client import TTSClient
 from backend.agent import WaitstaffAgent
+from backend.rag_retriever import get_retriever
 
 # Initialize singletons
 menu_manager = MenuManager()
 tts_client = TTSClient()
+get_retriever()  # Eagerly initialize RAG at startup to avoid first-request delay
 agent = WaitstaffAgent()
 
 # Create FastAPI app
@@ -66,6 +68,8 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "http://192.168.10.3:8501",
         "http://192.168.10.3:5173",
+        "http://gacaiserver:8501",
+        "http://gacaiserver:5173",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -299,15 +303,14 @@ def reload_endpoint():
     """Reloads all data (Menu and RAG) from disk."""
     try:
         menu_manager.reload()
-        
+
         from backend.rag_retriever import get_retriever
         retriever = get_retriever()
         retriever.reload()
-        
-        # Also re-initialize agent's retriever reference if needed, 
-        # though agent calls get_retriever() or uses the singleton which is mutated.
-        # Ideally agent should check for staleness or we rely on the mutable singleton.
-        
+
+        # Reload facts context in the agent so system prompt stays current
+        # agent._facts_context = agent._load_facts()
+
         return {"status": "success", "message": "Data reloaded successfully"}
     except Exception as e:
         import traceback
