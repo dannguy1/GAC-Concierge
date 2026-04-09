@@ -58,3 +58,8 @@ API_PORT = int(os.getenv("API_PORT", 8000))
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "secret_dev_key")
 if "localhost" in BACKEND_URL:
     BACKEND_URL = BACKEND_URL.replace("localhost", "127.0.0.1")
+
+# Display Agent Configuration
+DISPLAY_INTERVAL = int(os.getenv("DISPLAY_INTERVAL", 30))       # seconds between display events
+DISPLAY_ITEMS_PER_EVENT = int(os.getenv("DISPLAY_ITEMS_PER_EVENT", 3))  # items per event
+DISPLAY_PORT = int(os.getenv("DISPLAY_PORT", 8502))

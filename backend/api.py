@@ -2,9 +2,12 @@ import sys
 import os
 import re
 import time
+import json
 import hmac
+import asyncio
 import logging
 import threading
+from contextlib import asynccontextmanager
 from collections import defaultdict
 from functools import wraps
 
@@ -25,7 +28,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 from fastapi import FastAPI, HTTPException, Body, Request, Header, Depends
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, ConfigDict
@@ -46,15 +49,49 @@ from backend.menu_manager import MenuManager
 from backend.tts_client import TTSClient
 from backend.agent import WaitstaffAgent
 from backend.rag_retriever import get_retriever
+from backend.display_agent import get_display_agent
 
 # Initialize singletons
 menu_manager = MenuManager()
 tts_client = TTSClient()
 get_retriever()  # Eagerly initialize RAG at startup to avoid first-request delay
 agent = WaitstaffAgent()
+display_agent = get_display_agent()
+display_agent.load_menu(menu_manager.items)
+
+# SSE subscriber queues — one asyncio.Queue per connected display client
+_sse_subscribers: list[asyncio.Queue] = []
+_sse_lock = asyncio.Lock()
+
+
+async def _fanout_loop():
+    """Single background task: fans out display_agent events to all SSE subscribers."""
+    while True:
+        event = await display_agent.queue.get()
+        async with _sse_lock:
+            for q in list(_sse_subscribers):
+                await q.put(event)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start background tasks on startup, clean up on shutdown."""
+    display_task = asyncio.create_task(display_agent.run())
+    fanout_task = asyncio.create_task(_fanout_loop())
+    logger.info("DisplayAgent background task started")
+    yield
+    display_task.cancel()
+    fanout_task.cancel()
+    for task in (display_task, fanout_task):
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    logger.info("DisplayAgent background task stopped")
+
 
 # Create FastAPI app
-app = FastAPI(title="GAC Waiter Backend")
+app = FastAPI(title="GAC Waiter Backend", lifespan=lifespan)
 
 # Add CORS Middleware (Required for React Frontend)
 app.add_middleware(
@@ -70,6 +107,9 @@ app.add_middleware(
         "http://192.168.10.3:5173",
         "http://gacaiserver:8501",
         "http://gacaiserver:5173",
+        "http://gacaiserver:8502",
+        "http://localhost:8502",
+        "http://127.0.0.1:8502",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -163,6 +203,51 @@ def health_endpoint():
 def get_menu():
     """Returns the full menu as JSON."""
     return menu_manager.items
+
+
+@app.get("/v1/display/stream")
+async def display_stream():
+    """
+    SSE endpoint for menu-display clients.
+    Each connected client gets its own queue; the display_agent broadcast loop
+    fans out events by draining the shared display_agent.queue into all subscriber queues.
+    """
+    client_queue: asyncio.Queue = asyncio.Queue()
+
+    async with _sse_lock:
+        _sse_subscribers.append(client_queue)
+    logger.info(f"Display SSE client connected — {len(_sse_subscribers)} active")
+
+    async def event_generator():
+        # Send an initial ping so the browser knows the connection is live
+        yield "event: ping\ndata: {}\n\n"
+        try:
+            while True:
+                try:
+                    event_data = await asyncio.wait_for(client_queue.get(), timeout=25)
+                    payload = json.dumps(event_data, default=str)
+                    yield f"data: {payload}\n\n"
+                except asyncio.TimeoutError:
+                    # Send keepalive comment so proxies don't close the connection
+                    yield ": keepalive\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            async with _sse_lock:
+                try:
+                    _sse_subscribers.remove(client_queue)
+                except ValueError:
+                    pass
+            logger.info(f"Display SSE client disconnected — {len(_sse_subscribers)} active")
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # disable nginx buffering
+        },
+    )
 
 @app.post("/v1/chat")
 def chat_endpoint(request: ChatRequest):
@@ -308,8 +393,7 @@ def reload_endpoint():
         retriever = get_retriever()
         retriever.reload()
 
-        # Reload facts context in the agent so system prompt stays current
-        # agent._facts_context = agent._load_facts()
+        display_agent.load_menu(menu_manager.items)
 
         return {"status": "success", "message": "Data reloaded successfully"}
     except Exception as e:

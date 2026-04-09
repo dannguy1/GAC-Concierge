@@ -4,9 +4,11 @@
 
 PROJECT_DIR="/home/danlnguyen/GAC/GAC-Concierge"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
+DISPLAY_DIR="$PROJECT_DIR/menu-display"
 
 BACKEND_PID_FILE="$PROJECT_DIR/backend.pid"
 FRONTEND_PID_FILE="$PROJECT_DIR/frontend.pid"
+DISPLAY_PID_FILE="$PROJECT_DIR/display.pid"
 
 # Kill a process and its entire process group cleanly.
 _kill_pid_file() {
@@ -58,13 +60,25 @@ start() {
         echo "[SUCCESS] Frontend started (PID: $(cat "$FRONTEND_PID_FILE"))"
     fi
 
-    echo "Ready! Backend on http://localhost:8000 | Frontend on http://localhost:8501"
+    # Start Menu Display
+    if [ -f "$DISPLAY_PID_FILE" ] && kill -0 "$(cat "$DISPLAY_PID_FILE")" 2>/dev/null; then
+        echo "[INFO] Menu Display is already running (PID: $(cat "$DISPLAY_PID_FILE"))"
+    else
+        echo "[START] Starting Menu Display..."
+        cd "$DISPLAY_DIR" || exit 1
+        setsid bash -c "while true; do cd '$DISPLAY_DIR' && npm run dev >> '$PROJECT_DIR/display.log' 2>&1; sleep 2; done" &
+        echo $! > "$DISPLAY_PID_FILE"
+        echo "[SUCCESS] Menu Display started (PID: $(cat "$DISPLAY_PID_FILE"))"
+    fi
+
+    echo "Ready! Backend on http://localhost:8000 | Frontend on http://localhost:8501 | Display on http://localhost:8502"
 }
 
 stop() {
     echo "Stopping GAC Concierge services..."
     _kill_pid_file "$BACKEND_PID_FILE"  "Backend"
     _kill_pid_file "$FRONTEND_PID_FILE" "Frontend"
+    _kill_pid_file "$DISPLAY_PID_FILE"  "Menu Display"
 }
 
 status() {
@@ -78,6 +92,11 @@ status() {
         echo "🟢 Frontend: RUNNING (PID: $(cat "$FRONTEND_PID_FILE"))"
     else
         echo "🔴 Frontend: STOPPED"
+    fi
+    if [ -f "$DISPLAY_PID_FILE" ] && kill -0 "$(cat "$DISPLAY_PID_FILE")" 2>/dev/null; then
+        echo "🟢 Display:  RUNNING (PID: $(cat "$DISPLAY_PID_FILE"))"
+    else
+        echo "🔴 Display:  STOPPED"
     fi
     echo "Vite workers: $(ps aux | grep -E 'node.*vite' | grep -v grep | wc -l)"
     echo "======================"
