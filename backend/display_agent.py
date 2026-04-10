@@ -22,9 +22,10 @@ class DisplayAgent:
     Autonomous agent that periodically selects menu items and broadcasts
     display events to all connected SSE clients via a shared asyncio.Queue.
 
-    Selection logic can be extended in _pick_items(). Initially picks
-    DISPLAY_ITEMS_PER_EVENT random popular items, falling back to any items
-    if there are not enough popular ones.
+    Cycling strategy: all menu items are shuffled into a deck. Batches are
+    dealt from the front of the deck — no item repeats until every item has
+    been shown once. When the deck is exhausted it is reshuffled for the next
+    cycle, ensuring complete, fair coverage of the entire menu.
     """
 
     def __init__(self):
@@ -34,6 +35,7 @@ class DisplayAgent:
         # Shared broadcast queue — api.py subscribers read from this
         self.queue: asyncio.Queue = asyncio.Queue()
         self._menu_items: List[Dict[str, Any]] = []
+        self._deck: List[Dict[str, Any]] = []   # shuffled queue; refilled each cycle
         logger.info(
             f"DisplayAgent initialized — interval={self.interval}s, "
             f"items_per_event={self.items_per_event}, "
@@ -41,23 +43,35 @@ class DisplayAgent:
         )
 
     def load_menu(self, items: List[Dict[str, Any]]):
-        """Called at startup (and on reload) to provide the current menu list."""
+        """Called at startup (and on reload) to provide the current menu list.
+        Resets the deck so the new menu takes effect on the next batch."""
         self._menu_items = [i for i in items if i.get("type") != "general_info"]
+        self._deck = []   # force a reshuffle on next pick
         logger.info(f"DisplayAgent loaded {len(self._menu_items)} menu items")
+
+    def _refill_deck(self):
+        """Shuffle all menu items into a fresh deck for a new display cycle."""
+        self._deck = list(self._menu_items)
+        random.shuffle(self._deck)
+        logger.info(
+            f"DisplayAgent starting new display cycle — {len(self._deck)} items in deck"
+        )
 
     def _pick_items(self) -> List[Dict[str, Any]]:
         """
-        Select items to display. Current logic: prefer popular items;
-        fall back to the full menu if not enough popular items exist.
-        Extend this method for time-of-day specials, LLM-driven picks, etc.
+        Deal the next batch from the shuffled deck.
+        Once the deck is empty every item has been shown exactly once;
+        the deck is reshuffled to begin the next cycle.
         """
         if not self._menu_items:
             return []
 
-        popular = [i for i in self._menu_items if i.get("popular")]
-        pool = popular if len(popular) >= self.items_per_event else self._menu_items
-        count = min(self.items_per_event, len(pool))
-        return random.sample(pool, count)
+        if not self._deck:
+            self._refill_deck()
+
+        batch = self._deck[: self.items_per_event]
+        self._deck = self._deck[self.items_per_event :]
+        return batch
 
     async def run(self):
         """
