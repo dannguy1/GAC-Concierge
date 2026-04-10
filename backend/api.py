@@ -107,9 +107,6 @@ app.add_middleware(
         "http://192.168.10.3:5173",
         "http://gacaiserver:8501",
         "http://gacaiserver:5173",
-        "http://gacaiserver:8503",
-        "http://localhost:8503",
-        "http://127.0.0.1:8503",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -208,7 +205,7 @@ def get_menu():
 @app.get("/v1/display/stream")
 async def display_stream():
     """
-    SSE endpoint for menu-display clients.
+    SSE endpoint for remote display clients.
     Each connected client gets its own queue; the display_agent broadcast loop
     fans out events by draining the shared display_agent.queue into all subscriber queues.
     """
