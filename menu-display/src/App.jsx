@@ -3,7 +3,7 @@ import DisplayCard from './components/DisplayCard';
 import { openDisplayStream } from './services/api';
 import './App.css';
 
-const ITEM_DISPLAY_SECONDS = 8;
+const ITEM_DISPLAY_SECONDS_DEFAULT = 8;
 const TRANSITION_MS = 700;
 
 export default function App() {
@@ -12,6 +12,7 @@ export default function App() {
     const [connected, setConnected] = useState(false);
     const queueRef = useRef([]);
     const indexRef = useRef(0);
+    const itemIntervalRef = useRef(ITEM_DISPLAY_SECONDS_DEFAULT);
     const timerRef = useRef(null);
     const exitTimerRef = useRef(null);
 
@@ -34,21 +35,29 @@ export default function App() {
         }, TRANSITION_MS + 50);
     }, []);
 
-    const handleEvent = useCallback((items) => {
+    // handleEvent now receives the full envelope: { display: {...}, items: [...] }
+    const handleEvent = useCallback((envelope) => {
+        const items = envelope.items;
         if (!items || items.length === 0) return;
+
+        // Apply display metadata from server; fall back to default if missing
+        if (envelope.display?.item_interval) {
+            itemIntervalRef.current = envelope.display.item_interval;
+        }
+
         queueRef.current = items;
         indexRef.current = 0;
         if (timerRef.current) clearInterval(timerRef.current);
         advance(items);
         timerRef.current = setInterval(
             () => advance(queueRef.current),
-            ITEM_DISPLAY_SECONDS * 1000
+            itemIntervalRef.current * 1000
         );
     }, [advance]);
 
     useEffect(() => {
         const es = openDisplayStream(
-            (items) => { setConnected(true); handleEvent(items); },
+            (envelope) => { setConnected(true); handleEvent(envelope); },
             () => setConnected(false)
         );
         es.addEventListener('ping', () => setConnected(true));

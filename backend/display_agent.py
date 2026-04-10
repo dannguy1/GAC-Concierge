@@ -30,12 +30,14 @@ class DisplayAgent:
     def __init__(self):
         self.interval = config.DISPLAY_INTERVAL
         self.items_per_event = config.DISPLAY_ITEMS_PER_EVENT
+        self.item_interval = config.DISPLAY_ITEM_INTERVAL
         # Shared broadcast queue — api.py subscribers read from this
         self.queue: asyncio.Queue = asyncio.Queue()
         self._menu_items: List[Dict[str, Any]] = []
         logger.info(
             f"DisplayAgent initialized — interval={self.interval}s, "
-            f"items_per_event={self.items_per_event}"
+            f"items_per_event={self.items_per_event}, "
+            f"item_interval={self.item_interval}s"
         )
 
     def load_menu(self, items: List[Dict[str, Any]]):
@@ -61,13 +63,28 @@ class DisplayAgent:
         """
         Async loop: pick items and push to broadcast queue every `interval` seconds.
         Runs as a FastAPI lifespan background task.
+
+        Each event envelope shape:
+        {
+            "display": {
+                "item_interval": <int seconds>   # how long to show each item
+                # future fields: transition, shuffle, loop, …
+            },
+            "items": [ <menu item dict>, … ]
+        }
         """
         logger.info("DisplayAgent background loop started")
         while True:
             try:
                 items = self._pick_items()
                 if items:
-                    await self.queue.put({"items": items})
+                    event = {
+                        "display": {
+                            "item_interval": self.item_interval,
+                        },
+                        "items": items,
+                    }
+                    await self.queue.put(event)
                     logger.debug(f"DisplayAgent pushed {len(items)} items to queue")
             except Exception as e:
                 logger.error(f"DisplayAgent error picking items: {e}")

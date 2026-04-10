@@ -60,6 +60,7 @@ if "localhost" in BACKEND_URL:
     BACKEND_URL = BACKEND_URL.replace("localhost", "127.0.0.1")
 
 # Display Agent Configuration
-DISPLAY_INTERVAL = int(os.getenv("DISPLAY_INTERVAL", 30))       # seconds between display events
-DISPLAY_ITEMS_PER_EVENT = int(os.getenv("DISPLAY_ITEMS_PER_EVENT", 3))  # items per event
+DISPLAY_INTERVAL = int(os.getenv("DISPLAY_INTERVAL", 30))            # seconds between new batches from agent
+DISPLAY_ITEMS_PER_EVENT = int(os.getenv("DISPLAY_ITEMS_PER_EVENT", 3)) # items per batch
+DISPLAY_ITEM_INTERVAL = int(os.getenv("DISPLAY_ITEM_INTERVAL", 8))     # seconds each item is shown on kiosk
 DISPLAY_PORT = int(os.getenv("DISPLAY_PORT", 8502))

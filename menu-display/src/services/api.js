@@ -16,7 +16,8 @@ export const openDisplayStream = (onEvent, onError) => {
     es.onmessage = (e) => {
         try {
             const data = JSON.parse(e.data);
-            if (data.items) onEvent(data.items);
+            // Pass the full envelope {display, items} so the client can use metadata
+            if (data.items) onEvent(data);
         } catch (_) {}
     };
     es.onerror = onError || (() => {});
