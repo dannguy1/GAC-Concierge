@@ -114,19 +114,12 @@ app.add_middleware(
 )
 
 # Mount Static Files for Images (Accessible at /images/...)
-# Ensure data/images exists
-if not os.path.exists("data/images"):
-    os.makedirs("data/images", exist_ok=True)
-if not os.path.exists("data/downloaded_images"):
-    os.makedirs("data/downloaded_images", exist_ok=True)
+# Ensure image directories exist
+os.makedirs(config.IMAGES_DIR, exist_ok=True)
+os.makedirs(config.DOWNLOADED_IMAGES_DIR, exist_ok=True)
 
-# Mount both image directories if needed, or normalize to one.
-# App uses 'data/images', 'data/downloaded_images'.
-# We can mount generic 'data' or specific.
-# Let's mount /images to data/images
-app.mount("/images", StaticFiles(directory="data/images"), name="images")
-# And /downloaded_images
-app.mount("/downloaded_images", StaticFiles(directory="data/downloaded_images"), name="downloaded_images")
+app.mount("/images", StaticFiles(directory=config.IMAGES_DIR), name="images")
+app.mount("/downloaded_images", StaticFiles(directory=config.DOWNLOADED_IMAGES_DIR), name="downloaded_images")
 
 # ============== RATE LIMITING ==============
 rate_limit_store = defaultdict(list)

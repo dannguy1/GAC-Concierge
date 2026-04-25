@@ -24,6 +24,7 @@ DATA_DIR = os.path.join(BASE_DIR, "data") # Default fallback if needed
 IMAGES_DIR = get_path("IMAGES_DIR", "data/images")
 MENU_PATH = get_path("MENU_PATH", "data/menu.json")
 FACTS_PATH = get_path("FACTS_PATH", "data/facts.json")
+DOWNLOADED_IMAGES_DIR = get_path("DOWNLOADED_IMAGES_DIR", "data/downloaded_images")
 
 # -------------
 # TTS Configuration
